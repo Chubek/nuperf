@@ -1,5 +1,9 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.16)
 project(nuperf VERSION 0.1.0 LANGUAGES CXX)
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+include(cmake/Dependencies.cmake)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +16,10 @@ option(NUPERF_BUILD_LUA "Build Lua bindings" OFF)
 option(NUPERF_BUILD_SWIG_BINDINGS "Build SWIG bindings" OFF)
 option(NUPERF_BUILD_EXAMPLES "Build examples" OFF)
 option(NUPERF_BUILD_CLI "Build CLI application" ON)
+option(NUPERF_BUILD_DOCS "Build documentation target" ON)
+option(NUPERF_INSTALL_DOCS "Install generated documentation" ON)
+option(NUPERF_INSTALL_STDMETH "Install stdmeth plugin sources" ON)
+option(NUPERF_INSTALL_STDDEF "Install stddef plugin sources" ON)
 
 # Core library sources
 set(NUPERF_CORE_SOURCES
@@ -30,6 +38,7 @@ set(NUPERF_PLUGIN_SOURCES
 
 # Create main library
 add_library(nuperf ${NUPERF_CORE_SOURCES} ${NUPERF_PLUGIN_SOURCES})
+add_library(nuperf::nuperf ALIAS nuperf)
 
 target_include_directories(nuperf
     PUBLIC
@@ -42,10 +51,17 @@ target_compile_options(nuperf PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4>
 )
 
+if(NUPERF_BUILD_DOCS)
+    add_subdirectory(docs)
+endif()
+
 # CLI application
 if(NUPERF_BUILD_CLI)
     add_executable(nuperf-cli src/main.cpp)
     target_link_libraries(nuperf-cli PRIVATE nuperf)
+    if(TARGET nuperf_cli11)
+        target_link_libraries(nuperf-cli PRIVATE nuperf_cli11)
+    endif()
     set_target_properties(nuperf-cli PROPERTIES OUTPUT_NAME nuperf)
 endif()
 
@@ -63,9 +79,13 @@ if(NUPERF_BUILD_LUA)
     
     # Use vendored sol2 if available
     if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sol2/include)
-        target_include_directories(lnuperf PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sol2/include
-        )
+        if(TARGET nuperf_sol2)
+            target_link_libraries(lnuperf PRIVATE nuperf_sol2)
+        else()
+            target_include_directories(lnuperf PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sol2/include
+            )
+        endif()
     endif()
     
     set_target_properties(lnuperf PROPERTIES
@@ -103,21 +123,21 @@ if(NUPERF_BUILD_EXAMPLES)
 endif()
 
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/nuperf.pc.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/nuperf.pc.in
     ${CMAKE_CURRENT_BINARY_DIR}/nuperf.pc
     @ONLY
 )
 
 # Installation
 install(TARGETS nuperf
-    EXPORT nuperf-targets
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
+    EXPORT nuperfTargets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 install(DIRECTORY include/nuperf
-    DESTINATION include
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILES_MATCHING PATTERN "*.h"
 )
 
@@ -128,7 +148,44 @@ install(
 
 if(NUPERF_BUILD_CLI)
     install(TARGETS nuperf-cli
-        RUNTIME DESTINATION bin
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
 endif()
 
+install(EXPORT nuperfTargets
+    FILE nuperfTargets.cmake
+    NAMESPACE nuperf::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nuperf
+)
+
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/nuperfConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/nuperfConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nuperf
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/nuperfConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/nuperfConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/nuperfConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nuperf
+)
+
+if(NUPERF_INSTALL_STDMETH)
+    install(DIRECTORY stdmeth/
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/nuperf/stdmeth
+        FILES_MATCHING PATTERN "*.cpp"
+    )
+endif()
+
+if(NUPERF_INSTALL_STDDEF)
+    install(DIRECTORY stddef/
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/nuperf/stddef
+        FILES_MATCHING PATTERN "*.cpp"
+    )
+endif()
