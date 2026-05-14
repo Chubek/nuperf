@@ -29,3 +29,22 @@ Installed CMake package files:
 - `lib/cmake/nuperf/nuperfConfig.cmake`
 - `lib/cmake/nuperf/nuperfConfigVersion.cmake`
 - `lib/cmake/nuperf/nuperfTargets.cmake`
+
+## User plugin tool path
+
+NuPERF installs scaffold helpers to:
+
+- `~/.nuperf/bin/scaffold-method.sh`
+- `~/.nuperf/bin/scaffold-target.sh`
+
+Add `~/.nuperf/bin` to your shell `PATH`:
+
+```bash
+export PATH="$HOME/.nuperf/bin:$PATH"
+```
+
+Persist in `~/.bashrc`:
+
+```bash
+echo 'export PATH="$HOME/.nuperf/bin:$PATH"' >> ~/.bashrc
+```

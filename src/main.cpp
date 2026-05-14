@@ -1,9 +1,16 @@
 #include <nuperf/nuperf-api.h>
+#include <nuperf/nuperf-method.h>
+#include <nuperf/nuperf-target.h>
 
 #include <CLI/CLI.hpp>
+#include <dynalo/dynalo.hpp>
 
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -140,6 +147,96 @@ int cmd_build(const std::string &input_path,
     return 0;
 }
 
+std::filesystem::path nuperf_home_dir() {
+    const char *home = std::getenv("HOME");
+    if (home && *home) {
+        return std::filesystem::path(home) / ".nuperf";
+    }
+    return {};
+}
+
+using MethodFactorySig = const nuperf_method_t *();
+using TargetFactorySig = const nuperf_target_t *();
+
+std::vector<std::unique_ptr<dynalo::library>> g_loaded_plugin_handles;
+
+bool matches_plugin_name_scheme(const std::filesystem::path &path, std::string *out_name) {
+    if (path.extension() != ".so") {
+        return false;
+    }
+    const std::string stem = path.stem().string();
+    static const std::string prefix = "libnuperf-";
+    if (stem.rfind(prefix, 0) != 0 || stem.size() <= prefix.size()) {
+        return false;
+    }
+    if (out_name) {
+        *out_name = stem.substr(prefix.size());
+    }
+    return true;
+}
+
+void load_method_plugins_from_dir(const std::filesystem::path &dir) {
+    std::error_code ec;
+    if (!std::filesystem::exists(dir, ec) || !std::filesystem::is_directory(dir, ec)) {
+        return;
+    }
+    for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec || !entry.is_regular_file()) {
+            continue;
+        }
+        const auto path = entry.path();
+        std::string plugin_name;
+        if (!matches_plugin_name_scheme(path, &plugin_name)) {
+            continue;
+        }
+        auto lib = std::make_unique<dynalo::library>(path.string());
+        try {
+            auto *fn = lib->get_function<MethodFactorySig>("nuperf_method_plugin");
+            if (!fn) {
+                continue;
+            }
+            const nuperf_method_t *method = fn();
+            if (method && method->name) {
+                (void)nuperf_method_register(method);
+                g_loaded_plugin_handles.push_back(std::move(lib));
+            }
+        } catch (...) {
+            continue;
+        }
+    }
+}
+
+void load_target_plugins_from_dir(const std::filesystem::path &dir) {
+    std::error_code ec;
+    if (!std::filesystem::exists(dir, ec) || !std::filesystem::is_directory(dir, ec)) {
+        return;
+    }
+    for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec || !entry.is_regular_file()) {
+            continue;
+        }
+        const auto path = entry.path();
+        std::string plugin_name;
+        if (!matches_plugin_name_scheme(path, &plugin_name)) {
+            continue;
+        }
+        auto lib = std::make_unique<dynalo::library>(path.string());
+        try {
+            auto *fn = lib->get_function<TargetFactorySig>("nuperf_target_plugin");
+            if (!fn) {
+                continue;
+            }
+            const nuperf_target_t *target = fn();
+            if (target && target->name) {
+                (void)nuperf_target_register(target);
+                g_loaded_plugin_handles.push_back(std::move(lib));
+            }
+        } catch (...) {
+            continue;
+        }
+    }
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -148,6 +245,10 @@ int main(int argc, char **argv) {
         std::cerr << "nuperf_init failed: " << nuperf_strerror(st) << "\n";
         return 1;
     }
+
+    const std::filesystem::path home = nuperf_home_dir();
+    load_method_plugins_from_dir(home / "methods");
+    load_target_plugins_from_dir(home / "targets");
 
     CLI::App app{"NuPERF minimal perfect hash tool"};
     app.require_subcommand(1);
@@ -180,18 +281,36 @@ int main(int argc, char **argv) {
         }
         std::cout << "\n";
     } else if (*methods_cmd) {
+        std::vector<std::string> names;
         const size_t n = nuperf_method_count();
         for (size_t i = 0; i < n; ++i) {
             const char *name = nuperf_method_name(i);
             if (name) {
+                names.emplace_back(name);
+            }
+        }
+        if (names.empty()) {
+            std::cerr << "no methods registered (checked ~/.nuperf/methods for libnuperf-<name>.so)\n";
+            rc = 1;
+        } else {
+            for (const auto &name : names) {
                 std::cout << name << "\n";
             }
         }
     } else if (*targets_cmd) {
+        std::vector<std::string> names;
         const size_t n = nuperf_target_count();
         for (size_t i = 0; i < n; ++i) {
             const char *name = nuperf_target_name(i);
             if (name) {
+                names.emplace_back(name);
+            }
+        }
+        if (names.empty()) {
+            std::cerr << "no targets registered (checked ~/.nuperf/targets for libnuperf-<name>.so)\n";
+            rc = 1;
+        } else {
+            for (const auto &name : names) {
                 std::cout << name << "\n";
             }
         }

@@ -189,3 +189,13 @@ if(NUPERF_INSTALL_STDDEF)
         FILES_MATCHING PATTERN "*.cpp"
     )
 endif()
+
+install(FILES
+    scripts/scaffold-method.sh
+    scripts/scaffold-target.sh
+    DESTINATION $ENV{HOME}/.nuperf/bin
+    PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+)
