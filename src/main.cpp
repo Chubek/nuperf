@@ -205,8 +205,8 @@ int cmd_build(const std::string &input_path, const std::string &output_path, con
         }
     }
 
-    std::string effective_method = method;
-    std::string effective_target = target;
+    std::string effective_method = method.empty() ? "stdmeth" : method;
+    std::string effective_target = target.empty() ? "stddef" : target;
     std::vector<std::string> effective_options = options;
 
     if (input_format == nuperf::cli::InputFormat::lines) {
