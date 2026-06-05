@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(nuperf VERSION 0.1.0 LANGUAGES CXX)
+project(nuperf VERSION 0.1.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -132,12 +132,7 @@ endif()
 
 # Examples
 if(NUPERF_BUILD_EXAMPLES)
-    file(GLOB EXAMPLE_SOURCES examples/*.c examples/*.cpp)
-    foreach(example_src ${EXAMPLE_SOURCES})
-        get_filename_component(example_name ${example_src} NAME_WE)
-        add_executable(${example_name} ${example_src})
-        target_link_libraries(${example_name} PRIVATE nuperf)
-    endforeach()
+    add_subdirectory(examples)
 endif()
 
 configure_file(

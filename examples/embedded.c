@@ -16,6 +16,8 @@ int main(void) {
     if (st == NUPERF_OK) st = nuperf_table_create(&tbl);
     if (st == NUPERF_OK) st = nuperf_keyset_add_string(ks, "alpha");
     if (st == NUPERF_OK) st = nuperf_keyset_add_string(ks, "beta");
+    if (st == NUPERF_OK) st = nuperf_table_set_method(tbl, "stdmeth");
+    if (st == NUPERF_OK) st = nuperf_table_set_target(tbl, "stddef");
     if (st == NUPERF_OK) st = nuperf_table_set_keyset(tbl, ks);
     if (st == NUPERF_OK) st = nuperf_table_build(tbl);
     if (st == NUPERF_OK) st = nuperf_table_emit_file(tbl, "embedded_output.h");
