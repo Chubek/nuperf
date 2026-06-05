@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <unistd.h>
 
 namespace {
 
@@ -22,6 +23,21 @@ using MethodFactorySig = const nuperf_method_t *();
 using TargetFactorySig = const nuperf_target_t *();
 
 std::vector<std::unique_ptr<dynalo::library>> g_loaded_plugin_handles;
+
+bool tty_supports_color(FILE *stream) {
+    if (!stream) return false;
+    if (::isatty(::fileno(stream)) == 0) return false;
+    const char *no_color = std::getenv("NO_COLOR");
+    return !(no_color && *no_color);
+}
+
+const char *style(FILE *stream, const char *code) {
+    return tty_supports_color(stream) ? code : "";
+}
+
+void print_error(const std::string &message) {
+    std::cerr << style(stderr, "\033[31m") << "error: " << style(stderr, "\033[0m") << message << "\n";
+}
 
 struct HelpOptionDoc {
     std::vector<std::string> names;
@@ -59,12 +75,12 @@ const HelpCommandDoc *find_help_command_doc(const std::vector<HelpCommandDoc> &d
 }
 
 void print_global_help(const std::vector<HelpCommandDoc> &docs) {
-    std::cout << "NuPERF CLI\n";
-    std::cout << "Usage:\n";
+    std::cout << style(stdout, "\033[1;36m") << "NuPERF CLI" << style(stdout, "\033[0m") << "\n";
+    std::cout << style(stdout, "\033[1m") << "Usage:" << style(stdout, "\033[0m") << "\n";
     std::cout << "  nuperf <command> [options]\n";
     std::cout << "  nuperf help [command] [usage|options|examples]\n";
     std::cout << "  nuperf --help | -h\n\n";
-    std::cout << "Commands:\n";
+    std::cout << style(stdout, "\033[1m") << "Commands:" << style(stdout, "\033[0m") << "\n";
     for (const auto &doc : docs) {
         std::cout << "  " << doc.name;
         if (!doc.aliases.empty()) std::cout << " (" << join_names(doc.aliases) << ")";
@@ -74,12 +90,12 @@ void print_global_help(const std::vector<HelpCommandDoc> &docs) {
 }
 
 void print_help_usage_section(const HelpCommandDoc &doc) {
-    std::cout << "Usage:\n";
+    std::cout << style(stdout, "\033[1m") << "Usage:" << style(stdout, "\033[0m") << "\n";
     std::cout << "  " << doc.usage << "\n";
 }
 
 void print_help_options_section(const HelpCommandDoc &doc) {
-    std::cout << "Options:\n";
+    std::cout << style(stdout, "\033[1m") << "Options:" << style(stdout, "\033[0m") << "\n";
     if (doc.options.empty()) {
         std::cout << "  (none)\n";
         return;
@@ -95,7 +111,7 @@ void print_help_options_section(const HelpCommandDoc &doc) {
 }
 
 void print_help_examples_section(const HelpCommandDoc &doc) {
-    std::cout << "Examples:\n";
+    std::cout << style(stdout, "\033[1m") << "Examples:" << style(stdout, "\033[0m") << "\n";
     if (doc.examples.empty()) {
         std::cout << "  (none)\n";
         return;
@@ -104,7 +120,7 @@ void print_help_examples_section(const HelpCommandDoc &doc) {
 }
 
 void print_command_help(const HelpCommandDoc &doc, const std::string &section = {}) {
-    std::cout << "Command: " << doc.name << "\n";
+    std::cout << style(stdout, "\033[1;36m") << "Command:" << style(stdout, "\033[0m") << " " << doc.name << "\n";
     std::cout << doc.description << "\n";
     if (!doc.aliases.empty()) std::cout << "Aliases: " << join_names(doc.aliases) << "\n";
     if (section.empty() || section == "usage") {
@@ -434,11 +450,6 @@ int main(int argc, char **argv) {
     reg.register_argument("build", build_option);
     add_help_option_doc("build", HelpOptionDoc{{"--option"}, "KEY=VALUE", "Set table option (can be specified multiple times)", false, true});
 
-    klyspec::PositionalSpec init_dir;
-    init_dir.id = "dir";
-    init_dir.index = 0;
-    init_dir.required = false;
-    reg.register_argument("init", init_dir);
     add_help_option_doc("init", HelpOptionDoc{{"DIR"}, {}, "Workspace directory (default: current directory)"});
 
     klyspec::ArgumentSpec init_add_build;
@@ -518,9 +529,10 @@ int main(int argc, char **argv) {
     klyspec::KlyCLIService cli(reg);
     const auto pr = cli.parse(cmd, args);
     if (!pr.ok) {
-        for (const auto &d : pr.diagnostics) std::cerr << d << "\n";
+        for (const auto &d : pr.diagnostics) print_error(d);
         if (const auto *doc = find_help_command_doc(help_docs, cmd)) {
-            std::cerr << "Try: nuperf " << doc->name << " --help\n";
+            std::cerr << style(stderr, "\033[33m") << "Try: " << style(stderr, "\033[0m")
+                      << "nuperf " << doc->name << " --help\n";
         }
         nuperf_shutdown();
         return 1;
@@ -537,15 +549,35 @@ int main(int argc, char **argv) {
 
     int rc = 0;
     if (cmd == "version") {
+        if (!pr.positionals.empty()) {
+            print_error("unexpected positional argument(s)");
+            nuperf_shutdown();
+            return 1;
+        }
         const auto v = nuperf_version();
         std::cout << v.major << "." << v.minor << "." << v.patch;
         if (v.suffix && *v.suffix) std::cout << "-" << v.suffix;
         std::cout << "\n";
     } else if (cmd == "list-methods" || cmd == "methods") {
+        if (!pr.positionals.empty()) {
+            print_error("unexpected positional argument(s)");
+            nuperf_shutdown();
+            return 1;
+        }
         for (size_t i = 0; i < nuperf_method_count(); ++i) if (const char *n = nuperf_method_name(i)) std::cout << n << "\n";
     } else if (cmd == "list-targets" || cmd == "targets") {
+        if (!pr.positionals.empty()) {
+            print_error("unexpected positional argument(s)");
+            nuperf_shutdown();
+            return 1;
+        }
         for (size_t i = 0; i < nuperf_target_count(); ++i) if (const char *n = nuperf_target_name(i)) std::cout << n << "\n";
     } else if (cmd == "build") {
+        if (!pr.positionals.empty()) {
+            print_error("unexpected positional argument(s)");
+            nuperf_shutdown();
+            return 1;
+        }
         auto get1 = [&](const char *k) -> std::string {
             auto it = pr.values.find(k);
             return (it != pr.values.end() && !it->second.empty()) ? it->second.front() : std::string{};
@@ -571,6 +603,11 @@ int main(int argc, char **argv) {
                        get1("schema"), get1("dump-json-schema"));
         }
     } else if (cmd == "init") {
+        if (pr.positionals.size() > 1) {
+            print_error("unexpected extra positional argument(s)");
+            nuperf_shutdown();
+            return 1;
+        }
         const std::string dir = !pr.positionals.empty() ? pr.positionals.front() : std::string{};
         auto it = pr.values.find("add-build");
         const std::vector<std::string> builds = (it != pr.values.end()) ? it->second : std::vector<std::string>{};

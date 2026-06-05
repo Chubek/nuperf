@@ -123,6 +123,8 @@ Thumbs.db
 
 # Miscellaneous build and test artifacts
 **/build/
+**/build_/
+**/build-/
 **/Build/
 **/debug/
 **/Debug/
