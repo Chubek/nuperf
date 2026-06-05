@@ -3,10 +3,13 @@
 #include "nuperf/nuperf-api.h"
 #include "nuperf/nuperf-types.h"
 
+#include "../cli/schema_io.hpp"
+
 #include <sol/sol.hpp>
 
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -54,16 +57,12 @@ public:
         return *this;
     }
 
-    void reserve(std::size_t n) {
-        throw_on_error(nuperf_keyset_reserve(ks_, n));
-    }
-
     void clear() {
         nuperf_keyset_clear(ks_);
     }
 
     void add_string(const std::string& s) {
-        throw_on_error(nuperf_keyset_add_string(ks_, s.c_str(), s.size()));
+        throw_on_error(nuperf_keyset_add_string(ks_, s.c_str()));
     }
 
     void add_binary(const sol::object& obj) {
@@ -96,11 +95,11 @@ public:
     }
 
     void add_u32(uint32_t v) {
-        throw_on_error(nuperf_keyset_add_u32(ks_, v));
+        throw_on_error(nuperf_keyset_add_uint32(ks_, v));
     }
 
     void add_u64(uint64_t v) {
-        throw_on_error(nuperf_keyset_add_u64(ks_, v));
+        throw_on_error(nuperf_keyset_add_uint64(ks_, v));
     }
 
     std::size_t size() const {
@@ -108,7 +107,7 @@ public:
     }
 
     int key_type() const {
-        return static_cast<int>(nuperf_keyset_key_type(ks_));
+        return static_cast<int>(nuperf_keyset_type(ks_));
     }
 
     nuperf_keyset_t* get() const {
@@ -180,7 +179,8 @@ public:
     }
 
     void build(const LuaKeyset& ks) {
-        throw_on_error(nuperf_table_build(tbl_, ks.get()));
+        throw_on_error(nuperf_table_set_keyset(tbl_, ks.get()));
+        throw_on_error(nuperf_table_build(tbl_));
     }
 
     std::string emit_buffer() {
@@ -209,17 +209,17 @@ public:
         sol::state_view lua(ts);
         sol::table t = lua.create_table();
 
-        const nuperf_build_stats_t* stats = nuperf_table_get_build_stats(tbl_);
-        if (!stats) {
+        nuperf_build_stats_t stats{};
+        if (nuperf_table_get_stats(tbl_, &stats) != NUPERF_OK) {
             return t;
         }
 
-        t["input_key_count"] = stats->input_key_count;
-        t["unique_key_count"] = stats->unique_key_count;
-        t["build_time_ns"] = stats->build_time_ns;
-        t["memory_bytes"] = stats->memory_bytes;
-        t["artifact_count"] = stats->artifact_count;
-        t["output_bytes"] = stats->output_bytes;
+        t["key_count"] = stats.key_count;
+        t["build_time_us"] = stats.build_time_us;
+        t["build_memory_bytes"] = stats.build_memory_bytes;
+        t["table_size_bytes"] = stats.table_size_bytes;
+        t["bits_per_key"] = stats.bits_per_key;
+        t["method_stats"] = stats.method_stats ? std::string(stats.method_stats) : std::string{};
         return t;
     }
 
@@ -237,9 +237,9 @@ static std::vector<std::string> enumerate_methods() {
     out.reserve(n);
 
     for (std::size_t i = 0; i < n; ++i) {
-        const nuperf_method_t* m = nuperf_method_at(i);
-        if (m && m->name) {
-            out.emplace_back(m->name);
+        const char* name = nuperf_method_name(i);
+        if (name != nullptr) {
+            out.emplace_back(name);
         }
     }
     return out;
@@ -251,9 +251,9 @@ static std::vector<std::string> enumerate_targets() {
     out.reserve(n);
 
     for (std::size_t i = 0; i < n; ++i) {
-        const nuperf_target_t* t = nuperf_target_at(i);
-        if (t && t->name) {
-            out.emplace_back(t->name);
+        const char* name = nuperf_target_name(i);
+        if (name != nullptr) {
+            out.emplace_back(name);
         }
     }
     return out;
@@ -263,14 +263,61 @@ static sol::table version_table(sol::this_state ts) {
     sol::state_view lua(ts);
     sol::table t = lua.create_table();
 
-    const nuperf_version_t* v = nuperf_version();
-    if (v) {
-        t["major"] = v->major;
-        t["minor"] = v->minor;
-        t["patch"] = v->patch;
-        t["string"] = v->string ? std::string(v->string) : std::string{};
-    }
+    const nuperf_version_t v = nuperf_version();
+    t["major"] = v.major;
+    t["minor"] = v.minor;
+    t["patch"] = v.patch;
+    t["suffix"] = v.suffix ? std::string(v.suffix) : std::string{};
     return t;
+}
+
+static sol::table schema_namespace(sol::this_state ts) {
+    sol::state_view lua(ts);
+    sol::table schema = lua.create_table();
+
+    schema["dataset_json"] = []() {
+        return nuperf::cli::canonical_dataset_schema_json();
+    };
+    schema["dump_json"] = [](const std::string &path) {
+        std::string error;
+        if (!nuperf::cli::dump_dataset_schema(path, error)) {
+            throw sol::error(error);
+        }
+    };
+    schema["load"] = [&lua](const std::string &path, const std::string &format_name, const sol::optional<std::string> &schema_path) {
+        nuperf::cli::InputFormat format = nuperf::cli::InputFormat::json;
+        if (format_name == "json") format = nuperf::cli::InputFormat::json;
+        else if (format_name == "yaml") format = nuperf::cli::InputFormat::yaml;
+        else if (format_name == "sexpr") format = nuperf::cli::InputFormat::sexpr;
+        else if (format_name == "xml") format = nuperf::cli::InputFormat::xml;
+        else throw sol::error("unsupported schema format");
+
+        nuperf::cli::BuildRequest request;
+        std::string error;
+        if (!nuperf::cli::load_build_request(path, format, schema_path ? std::filesystem::path(*schema_path) : std::filesystem::path{}, request, error)) {
+            throw sol::error(error);
+        }
+
+        sol::table out = lua.create_table();
+        sol::table keys = lua.create_table(static_cast<int>(request.keys.size()), 0);
+        for (std::size_t index = 0; index < request.keys.size(); ++index) {
+            keys[index + 1] = request.keys[index];
+        }
+        sol::table options = lua.create_table();
+        for (const std::string &entry : request.options) {
+            const std::size_t pos = entry.find('=');
+            if (pos != std::string::npos) {
+                options[entry.substr(0, pos)] = entry.substr(pos + 1);
+            }
+        }
+        out["keys"] = keys;
+        out["method"] = request.method;
+        out["target"] = request.target;
+        out["options"] = options;
+        return out;
+    };
+
+    return schema;
 }
 
 } // namespace
@@ -293,23 +340,20 @@ void bind(sol::state_view lua) {
         "ERR_INVALID_STATE", static_cast<int>(NUPERF_ERR_INVALID_STATE),
         "ERR_OUT_OF_MEMORY", static_cast<int>(NUPERF_ERR_OUT_OF_MEMORY),
         "ERR_NOT_FOUND", static_cast<int>(NUPERF_ERR_NOT_FOUND),
-        "ERR_BUFFER_TOO_SMALL", static_cast<int>(NUPERF_ERR_BUFFER_TOO_SMALL),
-        "ERR_METHOD_NOT_FOUND", static_cast<int>(NUPERF_ERR_METHOD_NOT_FOUND),
-        "ERR_TARGET_NOT_FOUND", static_cast<int>(NUPERF_ERR_TARGET_NOT_FOUND)
+        "ERR_BUFFER_TOO_SMALL", static_cast<int>(NUPERF_ERR_BUFFER_TOO_SMALL)
     );
 
     nu["key_type"] = lua.create_table_with(
         "UNKNOWN", static_cast<int>(NUPERF_KEY_TYPE_UNKNOWN),
         "STRING", static_cast<int>(NUPERF_KEY_TYPE_STRING),
         "BINARY", static_cast<int>(NUPERF_KEY_TYPE_BINARY),
-        "U32", static_cast<int>(NUPERF_KEY_TYPE_U32),
-        "U64", static_cast<int>(NUPERF_KEY_TYPE_U64)
+        "U32", static_cast<int>(NUPERF_KEY_TYPE_UINT32),
+        "U64", static_cast<int>(NUPERF_KEY_TYPE_UINT64)
     );
 
     lua.new_usertype<LuaKeyset>(
         "NuperfKeyset",
         sol::constructors<LuaKeyset()>(),
-        "reserve", &LuaKeyset::reserve,
         "clear", &LuaKeyset::clear,
         "add_string", &LuaKeyset::add_string,
         "add_binary", &LuaKeyset::add_binary,
@@ -339,6 +383,7 @@ void bind(sol::state_view lua) {
     nu["new_table"] = []() {
         return LuaTable{};
     };
+    nu["schema"] = schema_namespace(lua.lua_state());
 
     lua["nuperf"] = nu;
 }
@@ -353,7 +398,8 @@ sol::state create_state() {
         sol::lib::math,
         sol::lib::os
     );
-    bind(lua);
+    bind(sol::state_view(lua));
+    lua["lnuperf"] = lua["nuperf"];
     return lua;
 }
 

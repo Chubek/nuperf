@@ -5,7 +5,7 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 include(cmake/Dependencies.cmake)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -28,6 +28,7 @@ set(NUPERF_CORE_SOURCES
     src/core/keyset.cpp
     src/util/hash.cpp
     src/util/io.cpp
+    src/cli/schema_io.cpp
 )
 
 # Plugin sources
@@ -51,6 +52,13 @@ target_compile_options(nuperf PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4>
 )
 
+if(TARGET nuperf_serdetk)
+    target_link_libraries(nuperf PUBLIC nuperf_serdetk)
+endif()
+if(TARGET nuperf_valijson)
+    target_link_libraries(nuperf PUBLIC nuperf_valijson)
+endif()
+
 if(NUPERF_BUILD_DOCS)
     add_subdirectory(docs)
 endif()
@@ -59,8 +67,15 @@ endif()
 if(NUPERF_BUILD_CLI)
     add_executable(nuperf-cli src/main.cpp)
     target_link_libraries(nuperf-cli PRIVATE nuperf)
-    if(TARGET nuperf_cli11)
-        target_link_libraries(nuperf-cli PRIVATE nuperf_cli11)
+    target_compile_features(nuperf-cli PRIVATE cxx_std_20)
+    if(TARGET nuperf_klyspec)
+        target_link_libraries(nuperf-cli PRIVATE nuperf_klyspec)
+    endif()
+    if(TARGET nuperf_dynalo)
+        target_link_libraries(nuperf-cli PRIVATE nuperf_dynalo)
+    endif()
+    if(TARGET nuperf_serdetk)
+        target_link_libraries(nuperf-cli PRIVATE nuperf_serdetk)
     endif()
     set_target_properties(nuperf-cli PROPERTIES OUTPUT_NAME nuperf)
 endif()
@@ -86,6 +101,9 @@ if(NUPERF_BUILD_LUA)
                 ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sol2/include
             )
         endif()
+    endif()
+    if(TARGET nuperf_serdetk)
+        target_link_libraries(lnuperf PRIVATE nuperf_serdetk)
     endif()
     
     set_target_properties(lnuperf PROPERTIES
