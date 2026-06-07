@@ -64,20 +64,20 @@ TEST_CASE("CLI 01: version command exits successfully", "[cli][smoke]") {
 }
 
 TEST_CASE("CLI 02: list-methods includes stdmeth", "[cli][smoke]") {
-    const auto result = run_command(cli_path() + " list-methods 2>&1");
+    const auto result = run_command(cli_path() + " registry methods list 2>&1");
     REQUIRE(result.exit_code == 0);
     CHECK(result.output.find("stdmeth") != std::string::npos);
 }
 
 TEST_CASE("CLI 03: list-targets includes stddef", "[cli][smoke]") {
-    const auto result = run_command(cli_path() + " list-targets 2>&1");
+    const auto result = run_command(cli_path() + " registry targets list 2>&1");
     REQUIRE(result.exit_code == 0);
     CHECK(result.output.find("stddef") != std::string::npos);
 }
 
 TEST_CASE("CLI 04: build with input uses default method/target", "[cli][smoke]") {
     const auto input = make_temp_input_file();
-    const auto cmd = cli_path() + " build --input " + input.string() + " 2>&1";
+    const auto cmd = cli_path() + " build run --input " + input.string() + " 2>&1";
     const auto result = run_command(cmd);
     std::filesystem::remove(input);
 
@@ -88,7 +88,7 @@ TEST_CASE("CLI 04: build with input uses default method/target", "[cli][smoke]")
 
 TEST_CASE("CLI 05: build with unknown method fails", "[cli][smoke]") {
     const auto input = make_temp_input_file();
-    const auto cmd = cli_path() + " build --input " + input.string() + " --method nope 2>&1";
+    const auto cmd = cli_path() + " build run --input " + input.string() + " --method nope 2>&1";
     const auto result = run_command(cmd);
     std::filesystem::remove(input);
 
@@ -98,10 +98,32 @@ TEST_CASE("CLI 05: build with unknown method fails", "[cli][smoke]") {
 
 TEST_CASE("CLI 06: build with malformed option fails", "[cli][smoke]") {
     const auto input = make_temp_input_file();
-    const auto cmd = cli_path() + " build --input " + input.string() + " --option badopt 2>&1";
+    const auto cmd = cli_path() + " build run --input " + input.string() + " --option badopt 2>&1";
     const auto result = run_command(cmd);
     std::filesystem::remove(input);
 
     REQUIRE(result.exit_code != 0);
     CHECK(result.output.find("invalid --option") != std::string::npos);
+}
+
+TEST_CASE("CLI 07: global help shows groups", "[cli][smoke]") {
+    const auto result = run_command(cli_path() + " help 2>&1");
+    REQUIRE(result.exit_code == 0);
+    CHECK(result.output.find("registry") != std::string::npos);
+    CHECK(result.output.find("build") != std::string::npos);
+    CHECK(result.output.find("project") != std::string::npos);
+}
+
+TEST_CASE("CLI 08: group help works", "[cli][smoke]") {
+    const auto result = run_command(cli_path() + " help registry methods 2>&1");
+    REQUIRE(result.exit_code == 0);
+    CHECK(result.output.find("registry methods") != std::string::npos);
+    CHECK(result.output.find("list") != std::string::npos);
+}
+
+TEST_CASE("CLI 09: command help works", "[cli][smoke]") {
+    const auto result = run_command(cli_path() + " help build run 2>&1");
+    REQUIRE(result.exit_code == 0);
+    CHECK(result.output.find("nuperf build run") != std::string::npos);
+    CHECK(result.output.find("--method") != std::string::npos);
 }
