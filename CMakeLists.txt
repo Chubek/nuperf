@@ -24,11 +24,10 @@ option(NUPERF_INSTALL_STDDEF "Install stddef plugin sources" ON)
 # Core library sources
 set(NUPERF_CORE_SOURCES
     src/core/api.cpp
-    src/core/builder.cpp
     src/core/keyset.cpp
+    src/core/builder.cpp
     src/util/hash.cpp
     src/util/io.cpp
-    src/cli/schema_io.cpp
 )
 
 # Plugin sources
@@ -65,7 +64,7 @@ endif()
 
 # CLI application
 if(NUPERF_BUILD_CLI)
-    add_executable(nuperf-cli src/main.cpp)
+    add_executable(nuperf-cli src/main.cpp src/cli/schema_io.cpp)
     target_link_libraries(nuperf-cli PRIVATE nuperf)
     target_compile_features(nuperf-cli PRIVATE cxx_std_20)
     if(TARGET nuperf_klyspec)

@@ -28,13 +28,30 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/sol2/include")
         "${CMAKE_CURRENT_SOURCE_DIR}/third_party/sol2/include")
 endif()
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/SerdeTk")
+set(_NUPERF_SERDETK_DIR "")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/SerdeTk/SerdeTk.hpp")
+    set(_NUPERF_SERDETK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/SerdeTk")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/Klyspec/SerdeTk/SerdeTk.hpp")
+    set(_NUPERF_SERDETK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/Klyspec/SerdeTk")
+endif()
+
+if(_NUPERF_SERDETK_DIR)
     add_library(nuperf_serdetk INTERFACE)
     target_include_directories(nuperf_serdetk INTERFACE
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/SerdeTk>
+        $<BUILD_INTERFACE:${_NUPERF_SERDETK_DIR}>
         $<INSTALL_INTERFACE:include>)
     install(TARGETS nuperf_serdetk
         EXPORT nuperfTargets)
+
+    install(
+        DIRECTORY ${_NUPERF_SERDETK_DIR}/
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING
+        PATTERN "*.h"
+        PATTERN "*.hpp"
+    )
+else()
+    message(STATUS "SerdeTk headers not found (expected under third_party/SerdeTk or third_party/Klyspec/SerdeTk).")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/valijson/include")
